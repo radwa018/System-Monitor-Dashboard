@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>System Monitor Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>System Monitor Dashboard</h1>
+    <div class="info">
+        <p><b>System:</b> <span id="system"></span></p>
+        <p><b>Release:</b> <span id="release"></span></p>
+        <p><b>Uptime:</b> <span id="uptime"></span></p>
+    </div>
+
+    <div class="stats">
+        <canvas id="cpuChart"></canvas>
+        <canvas id="memChart"></canvas>
+    </div>
+
+    <h2>Open Listening Ports</h2>
+    <table id="portsTable">
+        <thead>
+            <tr>
+                <th>IP</th>
+                <th>Port</th>
+                <th>PID</th>
+                <th>Process</th>
+                <th>Flag</th>
+            </tr>
+        </thead>
+        <tbody id="portsBody"></tbody>
+    </table>
+
+    <script>
+        const cpuData = [];
+        const memData = [];
+        const cpuChart = new Chart(document.getElementById('cpuChart'), {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'CPU %', data: cpuData, borderWidth: 2 }] }
+        });
+        const memChart = new Chart(document.getElementById('memChart'), {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Memory %', data: memData, borderWidth: 2 }] }
+        });
+
+        function renderPorts(ports) {
+            const tbody = document.getElementById('portsBody');
+            tbody.innerHTML = '';
+            if (!ports || ports.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5">No listening ports found or insufficient permissions.</td></tr>';
+                return;
+            }
+            ports.forEach(p => {
+                if (p.error) {
+                    tbody.innerHTML = `<tr><td colspan="5">${p.error}</td></tr>`;
+                    return;
+                }
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${p.ip || '-'}</td>
+                    <td>${p.port || '-'}</td>
+                    <td>${p.pid || '-'}</td>
+                    <td>${p.process || '-'}</td>
+                    <td>${p.suspicious ? '<span style="color:#ffcc00;font-weight:bold;">⚠️ Suspicious</span>' : '<span style="color:#7fffd4;">OK</span>'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function updateData() {
+            const res = await fetch('/data');
+            const data = await res.json();
+            document.getElementById('system').innerText = data.system;
+            document.getElementById('release').innerText = data.release;
+            document.getElementById('uptime').innerText = data.uptime;
+
+            const time = new Date().toLocaleTimeString();
+            if (cpuChart.data.labels.length > 20) {
+                cpuChart.data.labels.shift(); cpuData.shift();
+                memChart.data.labels.shift(); memData.shift();
+            }
+            cpuChart.data.labels.push(time);
+            memChart.data.labels.push(time);
+            cpuData.push(data.cpu_usage);
+            memData.push(data.memory_percent);
+            cpuChart.update();
+            memChart.update();
+
+            renderPorts(data.open_ports);
+        }
+
+        setInterval(updateData, 5000);
+        updateData();
+    </script>
+</body>
+</html>
