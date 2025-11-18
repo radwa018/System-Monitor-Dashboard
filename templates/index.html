@@ -2,97 +2,103 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>System Monitor Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Monitor Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Roboto+Mono&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <h1>System Monitor Dashboard</h1>
-    <div class="info">
-        <p><b>System:</b> <span id="system"></span></p>
-        <p><b>Release:</b> <span id="release"></span></p>
-        <p><b>Uptime:</b> <span id="uptime"></span></p>
-    </div>
+    <header>
+        <h1>SECURE MONITOR</h1>
+        <div class="user-info">Logged in as: <strong>{{ session.username }}</strong> | <a href="/logout">Logout</a></div>
+    </header>
 
-    <div class="stats">
-        <canvas id="cpuChart"></canvas>
-        <canvas id="memChart"></canvas>
-    </div>
+    <div class="container">
+        <div class="grid">
+            <div class="card cpu">
+                <h3>CPU Usage</h3>
+                <div class="gauge" id="cpuGauge">0%</div>
+            </div>
+            <div class="card memory">
+                <h3>Memory</h3>
+                <div class="gauge" id="memGauge">0%</div>
+            </div>
+            <div class="card disk">
+                <h3>Disk Usage</h3>
+                <div class="gauge" id="diskGauge">0%</div>
+            </div>
+            <div class="card alerts">
+                <h3>Security Alerts <span id="alertCount">0</span></h3>
+                <div id="alertList"></div>
+            </div>
+        </div>
 
-    <h2>Open Listening Ports</h2>
-    <table id="portsTable">
-        <thead>
-            <tr>
-                <th>IP</th>
-                <th>Port</th>
-                <th>PID</th>
-                <th>Process</th>
-                <th>Flag</th>
-            </tr>
-        </thead>
-        <tbody id="portsBody"></tbody>
-    </table>
+        <div class="section">
+            <h2>Open Ports</h2>
+            <div id="portsTable"></div>
+        </div>
+
+        <div class="section">
+            <h2>Top Processes</h2>
+            <table id="processTable">
+                <thead><tr><th>PID</th><th>Name</th><th>CPU %</th><th>Memory %</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <button onclick="generateReport()" class="report-btn">Generate PDF Report</button>
+    </div>
 
     <script>
-        const cpuData = [];
-        const memData = [];
-        const cpuChart = new Chart(document.getElementById('cpuChart'), {
-            type: 'line',
-            data: { labels: [], datasets: [{ label: 'CPU %', data: cpuData, borderWidth: 2 }] }
-        });
-        const memChart = new Chart(document.getElementById('memChart'), {
-            type: 'line',
-            data: { labels: [], datasets: [{ label: 'Memory %', data: memData, borderWidth: 2 }] }
-        });
+        function updateDashboard() {
+            fetch('/data')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('cpuGauge').textContent = data.cpu_usage + '%';
+                    document.getElementById('memGauge').textContent = data.memory_percent + '%';
+                    document.getElementById('diskGauge').textContent = data.disk_percent + '%';
 
-        function renderPorts(ports) {
-            const tbody = document.getElementById('portsBody');
-            tbody.innerHTML = '';
-            if (!ports || ports.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5">No listening ports found or insufficient permissions.</td></tr>';
-                return;
-            }
-            ports.forEach(p => {
-                if (p.error) {
-                    tbody.innerHTML = `<tr><td colspan="5">${p.error}</td></tr>`;
-                    return;
-                }
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${p.ip || '-'}</td>
-                    <td>${p.port || '-'}</td>
-                    <td>${p.pid || '-'}</td>
-                    <td>${p.process || '-'}</td>
-                    <td>${p.suspicious ? '<span style="color:#ffcc00;font-weight:bold;">⚠️ Suspicious</span>' : '<span style="color:#7fffd4;">OK</span>'}</td>
-                `;
-                tbody.appendChild(tr);
+                    // Update ports
+                    const portsHtml = data.open_ports.map(p => `
+                        <div class="port ${p.suspicious ? 'suspicious' : ''}">
+                            <strong>${p.ip}:${p.port}</strong> - ${p.process} (PID: ${p.pid})
+                            ${p.suspicious ? '<span class="badge">SUSPICIOUS - ' + p.reason + '</span>' : ''}
+                        </div>
+                    `).join('');
+                    document.getElementById('portsTable').innerHTML = portsHtml || '<p>No open ports detected.</p>';
+
+                    // Top processes
+                    const tbody = document.querySelector('#processTable tbody');
+                    tbody.innerHTML = data.processes.slice(0, 15).map(p => `
+                        <tr>
+                            <td>${p.pid}</td>
+                            <td>${p.name}</td>
+                            <td>${p.cpu_percent.toFixed(1)}%</td>
+                            <td>${p.memory_percent.toFixed(2)}%</td>
+                        </tr>
+                    `).join('');
+
+                    // Alerts
+                    fetch('/alerts')
+                        .then(r => r.json())
+                        .then(alerts => {
+                            document.getElementById('alertCount').textContent = alerts.count;
+                            document.getElementById('alertList').innerHTML = alerts.alerts.length ?
+                                alerts.alerts.map(a => `<div class="alert-item">⚠ Port ${a.port} (${a.process}) - ${a.reason}</div>`).join('') :
+                                '<p class="safe">No active threats detected</p>';
+                        });
+                });
+        }
+
+        function generateReport() {
+            fetch('/generate_report').then(r => r.json()).then(res => {
+                alert(res.message);
             });
         }
 
-        async function updateData() {
-            const res = await fetch('/data');
-            const data = await res.json();
-            document.getElementById('system').innerText = data.system;
-            document.getElementById('release').innerText = data.release;
-            document.getElementById('uptime').innerText = data.uptime;
-
-            const time = new Date().toLocaleTimeString();
-            if (cpuChart.data.labels.length > 20) {
-                cpuChart.data.labels.shift(); cpuData.shift();
-                memChart.data.labels.shift(); memData.shift();
-            }
-            cpuChart.data.labels.push(time);
-            memChart.data.labels.push(time);
-            cpuData.push(data.cpu_usage);
-            memData.push(data.memory_percent);
-            cpuChart.update();
-            memChart.update();
-
-            renderPorts(data.open_ports);
-        }
-
-        setInterval(updateData, 5000);
-        updateData();
+        setInterval(updateDashboard, 5000);
+        updateDashboard();
     </script>
 </body>
 </html>
